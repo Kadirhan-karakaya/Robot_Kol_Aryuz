@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Robot Kol ve Araç Kontrol</title>
+    <!-- NippleJS Joystick Kütüphanesi -->
+    <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.2/dist/nipplejs.min.js"></script>
+    <style>
+        body {
+            background-color: #111;
+            color: #eee;
+            font-family: monospace, sans-serif;
+            padding: 15px;
+            margin: 0;
+            max-width: 600px;
+            touch-action: none;
+        }
+        button {
+            padding: 15px;
+            font-size: 16px;
+            width: 100%;
+            margin-bottom: 15px;
+            cursor: pointer;
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 5px;
+        }
+        .status {
+            font-size: 16px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        /* Bölüm Başlıkları */
+        .section-title {
+            text-align: center;
+            font-size: 14px;
+            color: #fff;
+            background: #444;
+            padding: 5px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            margin-top: 10px;
+        }
+        /* Joystick Alanları */
+        .joystick-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+        .j-box {
+            width: 48%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .j-box.full-width {
+            width: 100%;
+            margin-bottom: 15px;
+        }
+        .j-label {
+            font-size: 11px;
+            color: #aaa;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+        .j-zone {
+            width: 130px;
+            height: 130px;
+            background-color: #222;
+            border: 1px solid #444;
+            border-radius: 10px;
+            position: relative;
+        }
+        /* Slider Alanları */
+        .slider-container {
+            margin-bottom: 15px;
+            background: #222;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #333;
+        }
+        .slider-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        input[type="range"] {
+            width: 75%;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .slider-value {
+            display: inline-block;
+            width: 20%;
+            text-align: right;
+            vertical-align: middle;
+            font-size: 14px;
+        }
+        /* Telemetri Logu */
+        .log {
+            margin-top: 15px;
+            font-size: 12px;
+            color: #888;
+            word-break: break-all;
+            background: #1a1a1a;
+            padding: 10px;
+            border: 1px solid #333;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <button id="connectBtn">Bluetooth'a Bağlan</button>
+    <div class="status" id="statusText">Durum: Bağlı Değil</div>
+
+    <!-- ALT ARAÇ KONTROLÜ -->
+    <div class="section-title">MOBİL ARAÇ (ALT ROBOT) KONTROLÜ</div>
+    <div class="j-box full-width">
+        <div class="j-label">ARAÇ SÜRÜŞ JOYSTICK<br>(X: Sağ/Sol, Y: İleri/Geri)</div>
+        <div class="j-zone" id="zone-car"></div>
+        <div class="j-val" id="text-car" style="font-size: 13px; color: #88c; margin-top: 8px; font-weight: bold;">X: 90 | Y: 90</div>
+    </div>
+
+    <!-- ROBOT KOL KONTROLÜ -->
+    <div class="section-title">ROBOT KOL KONTROLÜ</div>
+    <div class="joystick-container">
+        <div class="j-box">
+            <div class="j-label">SOL JOYSTICK<br>(S1 Taban, S2-S3 Gövde)</div>
+            <div class="j-zone" id="zone-left"></div>
+            <div class="j-val" id="text-left" style="font-size: 13px; color: #88c; margin-top: 8px; font-weight: bold;">X: 90 | Y: 90</div>
+        </div>
+        <div class="j-box">
+            <div class="j-label">SAĞ JOYSTICK<br>(S6 Dönme, S4 Eklem)</div>
+            <div class="j-zone" id="zone-right"></div>
+            <div class="j-val" id="text-right" style="font-size: 13px; color: #88c; margin-top: 8px; font-weight: bold;">X: 90 | Y: 90</div>
+        </div>
+    </div>
+
+    <!-- Sliderlar -->
+    <div id="sliders">
+        <div class="slider-container">
+            <div class="slider-label">5. Tutucu Yukarı/Aşağı (S5)</div>
+            <input type="range" id="slider-5" min="0" max="180" value="90">
+            <span class="slider-value" id="val-5">90°</span>
+        </div>
+        <div class="slider-container">
+            <div class="slider-label">7. Tutucu Aç/Kapat (S7)</div>
+            <input type="range" id="slider-7" min="0" max="180" value="90">
+            <span class="slider-value" id="val-7">90°</span>
+        </div>
+    </div>
+
+    <div class="log" id="logText">Gönderilen Veri:...</div>
+
+    <script>
+        // ==========================================
+        // CİHAZ VE BLE BİLGİLERİ
+        // ==========================================
+        const SERVICE_UUID      = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+        const CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+
+        let bleDevice = null;
+        let bleCharacteristic = null;
+        let isConnected = false;
+
+        // Değerler (Varsayılan 90 merkeze ayarlı)
+        let motorValues = [90, 90, 90, 90, 90, 90, 90]; // S1-S7
+        let carValues   = [90, 90];                     // R1(X) - R2(Y) Araç Motorları
+
+        // Gönderme Kontrolü
+        let sendInterval = null;
+        let lastSentStr = "";
+        let isSending = false;
+
+        // ==========================================
+        // SLIDER EVENTLERİ (S5 ve S7)
+        // ==========================================
+        document.getElementById('slider-5').addEventListener('input', (e) => {
+            const v = e.target.value;
+            document.getElementById('val-5').innerText = v + '°';
+            motorValues[4] = parseInt(v); // S5
+        });
+
+        document.getElementById('slider-7').addEventListener('input', (e) => {
+            const v = e.target.value;
+            document.getElementById('val-7').innerText = v + '°';
+            motorValues[6] = parseInt(v); // S7
+        });
+
+        // ==========================================
+        // JOYSTICK KURULUMU (Araç, Sol, Sağ)
+        // ==========================================
+        function createJoy(id) {
+            return nipplejs.create({
+                zone: document.getElementById(id),
+                mode: 'static',
+                position: { left: '50%', top: '50%' },
+                color: 'white',
+                size: 90
+            });
+        }
+
+        const joyCar = createJoy('zone-car');
+        const joyLeft = createJoy('zone-left');
+        const joyRight = createJoy('zone-right');
+
+        function mapJoyData(distance, angleDeg) {
+            const maxDist = 45; // Size=90, Max Distance=45
+            const norm = Math.min(distance / maxDist, 1.0);
+            const rad = (angleDeg * Math.PI) / 180;
+            const rawX = Math.cos(rad) * norm; 
+            const rawY = Math.sin(rad) * norm; 
+            
+            return {
+                x: Math.round(90 + (rawX * 90)),
+                y: Math.round(90 + (rawY * 90))
+            };
+        }
+
+        // --- ARAÇ JOYSTICK ---
+        joyCar.on('move', (evt, data) => {
+            if(!data.angle) return;
+            const res = mapJoyData(data.distance, data.angle.degree);
+            carValues[0] = res.x; // R1 (Sağ/Sol)
+            carValues[1] = res.y; // R2 (İleri/Geri)
+            document.getElementById('text-car').innerText = `X: ${res.x} | Y: ${res.y}`;
+        }).on('end', () => {
+            carValues[0] = 90;
+            carValues[1] = 90;
+            document.getElementById('text-car').innerText = `X: 90 | Y: 90`;
+        });
+
+        // --- SOL JOYSTICK (KOL) ---
+        joyLeft.on('move', (evt, data) => {
+            if(!data.angle) return;
+            const res = mapJoyData(data.distance, data.angle.degree);
+            motorValues[0] = res.x;             // S1 Taban
+            motorValues[1] = res.y;             // S2 Gövde 1
+            motorValues[2] = res.y;             // S3 Gövde 2
+            document.getElementById('text-left').innerText = `X: ${res.x} | Y: ${res.y}`;
+        }).on('end', () => {
+            motorValues[0] = 90;
+            motorValues[1] = 90;
+            motorValues[2] = 90;
+            document.getElementById('text-left').innerText = `X: 90 | Y: 90`;
+        });
+
+        // --- SAĞ JOYSTICK (KOL) ---
+        joyRight.on('move', (evt, data) => {
+            if(!data.angle) return;
+            const res = mapJoyData(data.distance, data.angle.degree);
+            motorValues[5] = res.x;             // S6 Dönme
+            motorValues[3] = res.y;             // S4 İlk Eklem
+            document.getElementById('text-right').innerText = `X: ${res.x} | Y: ${res.y}`;
+        }).on('end', () => {
+            motorValues[5] = 90;
+            motorValues[3] = 90;
+            document.getElementById('text-right').innerText = `X: 90 | Y: 90`;
+        });
+
+        // ==========================================
+        // BLUETOOTH İŞLEMLERİ & VERİ GÖNDERME
+        // ==========================================
+        const connectBtn = document.getElementById('connectBtn');
+        const statusText = document.getElementById('statusText');
+        const logText = document.getElementById('logText');
+
+        connectBtn.addEventListener('click', async () => {
+            if (isConnected) disconnect();
+            else await connect();
+        });
+
+        async function connect() {
+            try {
+                statusText.innerText = "Durum: Seçim Bekleniyor...";
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }],
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                statusText.innerText = "Durum: Bağlanıyor...";
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                bleCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+                isConnected = true;
+                statusText.innerText = "Durum: BAĞLANDI";
+                connectBtn.innerText = "Bağlantıyı Kes";
+                
+                if(sendInterval) clearInterval(sendInterval);
+                sendInterval = setInterval(sendBluetoothData, 50);
+
+            } catch (error) {
+                console.error(error);
+                statusText.innerText = "Durum: Hata (" + error.message + ")";
+            }
+        }
+
+        function disconnect() {
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+            }
+        }
+
+        function onDisconnected() {
+            isConnected = false;
+            if(sendInterval) clearInterval(sendInterval);
+            statusText.innerText = "Durum: Bağlantı Koptu";
+            connectBtn.innerText = "Bluetooth'a Bağlan";
+        }
+
+        async function sendBluetoothData() {
+            // S1-S7: Kol Motorları
+            // R1-R2: Araç Motor Yönleri (Robot Car X-Y)
+            const dataStr = `S1:${motorValues[0]},S2:${motorValues[1]},S3:${motorValues[2]},S4:${motorValues[3]},S5:${motorValues[4]},S6:${motorValues[5]},S7:${motorValues[6]},R1:${carValues[0]},R2:${carValues[1]}\n`;
+            
+            if (dataStr === lastSentStr) return;
+            
+            logText.innerText = "Son Gönderilen:\n" + dataStr.trim();
+            
+            if (!isConnected || !bleCharacteristic || isSending) return;
+
+            isSending = true;
+            try {
+                const encoder = new TextEncoder();
+                await bleCharacteristic.writeValue(encoder.encode(dataStr));
+                lastSentStr = dataStr;
+            } catch (error) {
+                console.error("Gönderim hatası:", error);
+            } finally {
+                isSending = false;
+            }
+        }
+
+        logText.innerText = `İlk Veri Formatı:\nS1:${motorValues[0]},S2:${motorValues[1]},S3:${motorValues[2]},S4:${motorValues[3]},S5:${motorValues[4]},S6:${motorValues[5]},S7:${motorValues[6]},R1:${carValues[0]},R2:${carValues[1]}`;
+        
+        /*
+         * === ESP32 ENTEGRASYON REHBERİ ===
+         * String Formatı güncellendi (Kol motorlarına ek olarak 2 adet araç değişkeni eklendi): 
+         * "S1:90,S2:90,S3:90,S4:90,S5:90,S6:90,S7:90,R1:90,R2:90\n"
+         * 
+         * C++ tarafında okurken:
+         * int s1, s2, s3, s4, s5, s6, s7; // Kol motorları
+         * int r1, r2; // Araç motorları
+         * 
+         * int count = sscanf(receivedText.c_str(), 
+         *  "S1:%d,S2:%d,S3:%d,S4:%d,S5:%d,S6:%d,S7:%d,R1:%d,R2:%d", 
+         *  &s1, &s2, &s3, &s4, &s5, &s6, &s7, &r1, &r2);
+         * 
+         * if(count == 9) {
+         *     // Araç için R1 ve R2'yi işleyin. Örneğin R1(X), R2(Y).
+         * }
+         */
+    </script>
+</body>
+</html>
