@@ -230,17 +230,25 @@
 
         joyArm.on('move', (evt, data) => {
             if (!data || !data.vector) return;
-            state.s1 = Math.round(90 + (data.vector.x * 90));
-            let yVal = Math.round(90 + (data.vector.y * 90));
+            
+            // YENİ EKLENEN KISIM: Joystick'in merkeze uzaklığına göre güç çarpanı (0 ile 1 arası)
+            let power = Math.min(data.distance / 50, 1.0);
+            
+            // Analog yumuşak haritalama
+            state.s1 = Math.round(90 + (power * data.vector.x * 90));
+            let yVal = Math.round(90 + (power * data.vector.y * 90));
+            
             state.s2 = yVal;
             state.s3 = yVal;
+            
+            // Açıları güvenlik sınırında tut
             state.s1 = Math.min(180, Math.max(0, state.s1));
             state.s2 = Math.min(180, Math.max(0, state.s2));
             state.s3 = Math.min(180, Math.max(0, state.s3));
+            
             updateLabels();
         });
 
-        // Joystick bırakıldığında değerler sıfırlanmaz, son konumda kalır
         joyArm.on('end', () => {
             // Değerler korunuyor - sıfırlama yok
         });
@@ -255,8 +263,13 @@
 
         joyBase.on('move', (evt, data) => {
             if (!data || !data.vector) return;
-            let forward = data.vector.y * 255;
-            let right = data.vector.x * 255;
+            
+            // YENİ EKLENEN KISIM: Tekerlekler için de analog güç çarpanı
+            let power = Math.min(data.distance / 50, 1.0);
+            
+            let forward = power * data.vector.y * 255;
+            let right = power * data.vector.x * 255;
+            
             state.r1 = Math.round(forward + right);
             state.r2 = Math.round(forward - right);
             state.r1 = Math.min(255, Math.max(-255, state.r1));
@@ -264,7 +277,6 @@
             updateLabels();
         });
 
-        // Joystick bırakıldığında değerler sıfırlanmaz, son konumda kalır
         joyBase.on('end', () => {
             // Değerler korunuyor - sıfırlama yok
         });
