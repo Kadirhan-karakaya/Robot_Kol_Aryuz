@@ -240,11 +240,9 @@
             updateLabels();
         });
 
+        // Joystick bırakıldığında değerler sıfırlanmaz, son konumda kalır
         joyArm.on('end', () => {
-            state.s1 = 90;
-            state.s2 = 90;
-            state.s3 = 90;
-            updateLabels();
+            // Değerler korunuyor - sıfırlama yok
         });
 
         const joyBase = nipplejs.create({
@@ -266,10 +264,9 @@
             updateLabels();
         });
 
+        // Joystick bırakıldığında değerler sıfırlanmaz, son konumda kalır
         joyBase.on('end', () => {
-            state.r1 = 0;
-            state.r2 = 0;
-            updateLabels();
+            // Değerler korunuyor - sıfırlama yok
         });
 
         sliders.forEach(key => {
